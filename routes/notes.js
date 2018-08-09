@@ -59,7 +59,7 @@ router.get('/:id', (req, res, next) => {
   const id = req.params.id;
 
   knex
-    .select('notes.id', 'title', 'content', 'folders.id as folderId', 'folders.name as folderName', 'tags.name as tagId', 'tags.id as tagId')
+    .select('notes.id', 'title', 'content', 'folders.id as folderId', 'folders.name as folderName', 'tags.name as tagName', 'tags.id as tagId')
     .from('notes')
     .leftJoin('folders', 'notes.folder_id', 'folders.id')
     .leftJoin('notes_tags', 'notes_tags.note_id', 'notes.id')
@@ -67,8 +67,8 @@ router.get('/:id', (req, res, next) => {
     .where('notes.id', id)
     .then(results => {
       if (results.length) {
-        const hydrate = hydrateNotes(results);
-        res.json(hydrate);
+        const hydrated = hydrateNotes(results)[0];
+        res.json(hydrated);
       } else {
         next();
       }
@@ -81,6 +81,7 @@ router.get('/:id', (req, res, next) => {
 // Put update an item
 router.put('/:id', (req, res, next) => {
   const id = req.params.id;
+  const tags = req.body.tags;
 
   /***** Never trust users - validate input *****/
   const updateObj = {};
@@ -91,6 +92,7 @@ router.put('/:id', (req, res, next) => {
       updateObj[field] = req.body[field];
     }
   });
+
 
   /***** Never trust users - validate input *****/
   if (!updateObj.title) {
@@ -107,14 +109,26 @@ router.put('/:id', (req, res, next) => {
     .returning('id')
     .then(([id]) => {
       noteId = id;
+      return knex('notes_tags')
+        .where('note_id', noteId)
+        .del()
+        .then(() => {
+          const tagsInsert = tags.map(tagId => ({note_id: noteId, tag_id: tagId}));
+          return knex.insert(tagsInsert).into('notes_tags');
+        });
+    })
+    .then(() => {
       return knex.select('notes.id', 'title', 'content', 'folder_id as folderId', 'folders.name as folderName', 'tags.id as tagId', 'tags.name as tagName')
         .from('notes')
         .leftJoin('folders', 'notes.folder_id', 'folders.id')
+        .leftJoin('notes_tags', 'notes_tags.note_id', 'notes.id')
+        .leftJoin('tags', 'notes_tags.tag_id', 'tags.id')
         .where('notes.id', noteId);
     })
-    .then(([result]) => {
+    .then(result => {
       if(result) {
-        res.json(result);
+        const hydrated = hydrateNotes(result)[0];
+        res.json(hydrated);
       } else {
         next();
       }
@@ -126,7 +140,7 @@ router.put('/:id', (req, res, next) => {
 
 // Post (insert) an item
 router.post('/', (req, res, next) => {
-  const { title, content, folderId } = req.body;
+  const { title, content, folderId, tags } = req.body;
 
   const newItem = {
     title: title,
@@ -146,16 +160,25 @@ router.post('/', (req, res, next) => {
     .insert(newItem)
     .returning('id')
     .then(([id]) => {
-      console.log(id);
       noteId = id;
-
+      const tagsInsert = tags.map(tagId => ({ note_id: noteId, tag_id: tagId}));
+      return knex.insert(tagsInsert).into('notes_tags');
+    })
+    .then(() => {
       return knex.select('notes.id', 'title', 'content', 'folder_id as folderId', 'folders.name as folderName', 'tags.id as tagId', 'tags.name as tagName')
         .from('notes')
         .leftJoin('folders', 'notes.folder_id', 'folders.id')
+        .leftJoin('notes_tags', 'notes_tags.note_id', 'notes.id')
+        .leftJoin('tags', 'notes_tags.tag_id', 'tags.id')
         .where('notes.id', noteId);
     })
-    .then(([result]) => {
-      res.location(`${req.originalUrl}/${result.id}`).status(201).json(result);
+    .then(result => {
+      if (result) {
+        const hydrated = hydrateNotes(result)[0];
+        res.location(`${req.originalUrl}/${result.id}`).status(201).json(hydrated);
+      } else {
+        next();
+      }
     })
     .catch(err => {
       next(err);
