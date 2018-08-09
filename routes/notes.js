@@ -6,20 +6,24 @@ const express = require('express');
 const router = express.Router();
 
 // TEMP: Simple In-Memory Database
-const data = require('../db/notes');
+//const data = require('../db/notes');
 //const simDB = require('../db/simDB');
 const knex = require('../knex');
+
+const hydrateNotes = require('../utils/hydrateNotes');
 
 //const notes = simDB.initialize(data);
 
 // Get All (and search by query)
 router.get('/', (req, res, next) => {
-  const { searchTerm, folderId } = req.query;
+  const { searchTerm, folderId, tagId } = req.query;
 
   knex
-    .select('notes.id', 'title', 'content', 'folders.id as folderId', 'folders.name as folderName')
+    .select('notes.id', 'title', 'content', 'folders.id as folderId', 'folders.name as folderName', 'tags.name as tagName', 'tags.id as tagId')
     .from('notes')
     .leftJoin('folders', 'notes.folder_id', 'folders.id')
+    .leftJoin('notes_tags', 'notes_tags.note_id', 'notes.id')
+    .leftJoin('tags', 'notes_tags.tag_id', 'tags.id')
     .modify(queryBuilder => {
       if (searchTerm) {
         queryBuilder.where('title', 'like', `%${searchTerm}%`);
@@ -30,9 +34,19 @@ router.get('/', (req, res, next) => {
         queryBuilder.where('folders.id', folderId);
       }
     })
+    .modify(queryBuilder => {
+      if (tagId) {
+        queryBuilder.where('tag_id', tagId);
+      }
+    })
     .orderBy('notes.id')
     .then(results => {
-      res.json(results);
+      if (results) {
+        const hydrated = hydrateNotes(results);
+        res.json(hydrated);
+      } else {
+        next();
+      }
     })
     .catch(err => {
       next(err);
@@ -45,7 +59,7 @@ router.get('/:id', (req, res, next) => {
   const id = req.params.id;
 
   knex
-    .select('notes.id', 'title', 'content', 'folders.id as folderId', 'folders.name as folderName')
+    .select('notes.id', 'title', 'content', 'folders.id as folderId', 'folders.name as folderName', 'tags.name as tagId', 'tags.id as tagId')
     .from('notes')
     .leftJoin('folders', 'notes.folder_id', 'folders.id')
     .where('notes.id', id)
@@ -90,7 +104,7 @@ router.put('/:id', (req, res, next) => {
     .returning('id')
     .then(([id]) => {
       noteId = id;
-      return knex.select('notes.id', 'title', 'content', 'folder_id as folderId', 'folders.name as folderName')
+      return knex.select('notes.id', 'title', 'content', 'folder_id as folderId', 'folders.name as folderName', 'tags.id as tagId', 'tags.name as tagName')
         .from('notes')
         .leftJoin('folders', 'notes.folder_id', 'folders.id')
         .where('notes.id', noteId);
@@ -132,7 +146,7 @@ router.post('/', (req, res, next) => {
       console.log(id);
       noteId = id;
 
-      return knex.select('notes.id', 'title', 'content', 'folder_id as folderId', 'folders.name as folderName')
+      return knex.select('notes.id', 'title', 'content', 'folder_id as folderId', 'folders.name as folderName', 'tags.id as tagId', 'tags.name as tagName')
         .from('notes')
         .leftJoin('folders', 'notes.folder_id', 'folders.id')
         .where('notes.id', noteId);
