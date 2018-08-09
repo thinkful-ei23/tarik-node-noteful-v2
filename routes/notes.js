@@ -62,10 +62,13 @@ router.get('/:id', (req, res, next) => {
     .select('notes.id', 'title', 'content', 'folders.id as folderId', 'folders.name as folderName', 'tags.name as tagId', 'tags.id as tagId')
     .from('notes')
     .leftJoin('folders', 'notes.folder_id', 'folders.id')
+    .leftJoin('notes_tags', 'notes_tags.note_id', 'notes.id')
+    .leftJoin('tags', 'notes_tags.tag_id', 'tags.id')
     .where('notes.id', id)
     .then(results => {
       if (results.length) {
-        res.json(results[0]);
+        const hydrate = hydrateNotes(results);
+        res.json(hydrate);
       } else {
         next();
       }
